@@ -1,0 +1,6 @@
+[package]
+name = "absal"
+version = "0.1.0"
+authors = ["Victor Maia <srvictormaia@gmail.com>"]
+
+[dependencies]

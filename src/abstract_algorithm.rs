@@ -157,26 +157,27 @@ pub fn from_net(net : &Net) -> Term {
 
 pub fn reduce(net : &mut Net) -> Stats {
     let mut stats = Stats { loops: 0, rules: 0, betas: 0, dupls: 0, annis: 0 };
+    let mut warp: Vec<u32> = Vec::new();
     let mut next : Port = net.nodes[0];
     let mut prev : Port;
     let mut back : Port;
-    while next > 0 {
+    while (next > 0) || (warp.len() > 0) {
+        if !(next > 0) {
+            next = enter_port(net, port(warp.pop().unwrap(), 2));
+        }
         prev = enter_port(net, next);
         next = enter_port(net, prev);
-        if get_port_slot(next) == 0 {
-            if get_port_slot(prev) == 0 && get_port_node(prev) != 0 {
-                stats.rules = stats.rules + 1;
-                back = enter_port(net, port(get_port_node(prev), get_node_meta(net, get_port_node(prev))));
-                rewrite(net, get_port_node(prev), get_port_node(next));
-                next = enter_port(net, back);
-            } else {
-                set_node_meta(net, get_port_node(next), 1);
-                next = enter_port(net, port(get_port_node(next), 1));
-            }
+        if get_port_slot(next) == 0 && get_port_slot(prev) == 0 && get_port_node(prev) != 0 {
+            stats.rules = stats.rules + 1;
+            back = enter_port(net, port(get_port_node(prev), get_node_meta(net, get_port_node(prev))));
+            rewrite(net, get_port_node(prev), get_port_node(next));
+            next = enter_port(net, back);
+        } else if get_port_slot(next) == 0 {
+            warp.push(get_port_node(next));
+            next = enter_port(net, port(get_port_node(next), 1));
         } else {
-            let meta = get_node_meta(net, get_port_node(next));
-            set_node_meta(net, get_port_node(next), if meta == 0 { get_port_slot(next) } else { meta + 1});
-            next = enter_port(net, port(get_port_node(next), if meta == 1 { 2 } else { 0 }));
+            set_node_meta(net, get_port_node(next), get_port_slot(next));
+            next = enter_port(net, port(get_port_node(next), 0));
         }
         stats.loops = stats.loops + 1;
     }

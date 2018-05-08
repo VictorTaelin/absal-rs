@@ -3,4 +3,12 @@ name = "absal"
 version = "0.1.0"
 authors = ["Victor Maia <srvictormaia@gmail.com>"]
 
+[lib]
+name = "absal_lib"
+path = "src/lib.rs"
+
+[[bin]]
+name = "main"
+path = "src/main.rs"
+
 [dependencies]

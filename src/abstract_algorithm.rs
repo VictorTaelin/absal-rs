@@ -157,16 +157,13 @@ pub fn from_net(net : &Net) -> Term {
 
 pub fn reduce(net : &mut Net) -> Stats {
     let mut stats = Stats { loops: 0, rules: 0, betas: 0, dupls: 0, annis: 0 };
-    let mut warp: Vec<u32> = Vec::new();
+    let mut warp : Vec<u32> = Vec::new();
     let mut next : Port = net.nodes[0];
     let mut prev : Port;
     let mut back : Port;
     while (next > 0) || (warp.len() > 0) {
-        if !(next > 0) {
-            next = enter_port(net, port(warp.pop().unwrap(), 2));
-        }
+        next = if next == 0 { enter_port(net, port(warp.pop().unwrap(), 2)) } else { next };
         prev = enter_port(net, next);
-        next = enter_port(net, prev);
         if get_port_slot(next) == 0 && get_port_slot(prev) == 0 && get_port_node(prev) != 0 {
             stats.rules = stats.rules + 1;
             back = enter_port(net, port(get_port_node(prev), get_node_meta(net, get_port_node(prev))));

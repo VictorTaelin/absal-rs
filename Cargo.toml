@@ -1,12 +1,12 @@
 [package]
 name = "absal"
-version = "0.1.0"
+version = "0.1.1"
 authors = ["Victor Maia <srvictormaia@gmail.com>"]
 description = "Optimal reduction of λ-terms"
 license = "MIT"
 
 [lib]
-name = "absal_lib"
+name = "absal"
 path = "src/lib.rs"
 
 [[bin]]

@@ -1,7 +1,7 @@
-extern crate absal_lib;
+extern crate absal;
 
-use absal_lib::abstract_algorithm::{*};
-use absal_lib::lambda_calculus::{*};
+use absal::abstract_algorithm::{*};
+use absal::lambda_calculus::{*};
 
 fn main() {
     // Parses the following λ-program:

@@ -30,10 +30,10 @@ fn new_node(net : &mut Net, kind : u32) -> u32 {
             (len as u32) / 4
         }
     };
-    net.nodes[(node * 4 + 0) as usize] = node * 4 + 0;
-    net.nodes[(node * 4 + 1) as usize] = node * 4 + 1;
-    net.nodes[(node * 4 + 2) as usize] = node * 4 + 2;
-    net.nodes[(node * 4 + 3) as usize] = kind << 2;
+    net.nodes[port(node, 0) as usize] = kind << 2;
+    net.nodes[port(node, 1) as usize] = port(node, 1);
+    net.nodes[port(node, 2) as usize] = port(node, 2);
+    net.nodes[port(node, 3) as usize] = port(node, 3);
     return node;
 }
 
@@ -41,28 +41,28 @@ fn port(node : u32, slot : u32) -> Port {
     (node << 2) | slot
 }
 
-fn get_port_node(port : Port) -> u32 {
+fn node(port : Port) -> u32 {
     port >> 2
 }
 
-fn get_port_slot(port : Port) -> u32 {
+fn slot(port : Port) -> u32 {
     port & 3
 }
 
-fn enter_port(net : &Net, port : Port) -> Port {
+fn enter(net : &Net, port : Port) -> Port {
     net.nodes[port as usize]
 }
 
-fn get_node_kind(net : &Net, node_index : u32) -> u32 {
-    net.nodes[(node_index * 4 + 3) as usize] >> 2
+fn kind(net : &Net, node : u32) -> u32 {
+    net.nodes[port(node, 0) as usize] >> 2
 }
 
-fn get_node_meta(net : &Net, node_index : u32) -> u32 {
-    net.nodes[(node_index * 4 + 3) as usize] & 3
+fn meta(net : &Net, node : u32) -> u32 {
+    net.nodes[port(node, 0) as usize] & 3
 }
 
-fn set_node_meta(net : &mut Net, node_index : u32, meta : u32) {
-    let ptr = (node_index * 4 + 3) as usize;
+fn set_meta(net : &mut Net, node : u32, meta : u32) {
+    let ptr = port(node, 0) as usize;
     net.nodes[ptr] = net.nodes[ptr] & 0xFFFFFFFC | meta;
 }
 
@@ -72,74 +72,74 @@ fn link(net : &mut Net, ptr_a : u32, ptr_b : u32) {
 }
 
 pub fn to_net(term : &Term) -> Net {
-    fn encode(net : &mut Net, kind : &mut u32, scope : &mut Vec<u32>, term : &Term) -> Port {
+    fn encode(net : &mut Net, _kind : &mut u32, scope : &mut Vec<u32>, term : &Term) -> Port {
         match term {
             &App{ref fun, ref arg} => {
                 let app = new_node(net, 1);
-                let fun = encode(net, kind, scope, fun);
-                link(net, port(app, 0), fun);
-                let arg = encode(net, kind, scope, arg);
-                link(net, port(app, 1), arg);
-                port(app, 2)
+                let fun = encode(net, _kind, scope, fun);
+                link(net, port(app, 1), fun);
+                let arg = encode(net, _kind, scope, arg);
+                link(net, port(app, 2), arg);
+                port(app, 3)
             },
             &Lam{ref bod} => {
                 let fun = new_node(net, 1);
                 let era = new_node(net, 0);
-                link(net, port(fun, 1), port(era, 0));
-                link(net, port(era, 1), port(era, 2));
+                link(net, port(fun, 2), port(era, 1));
+                link(net, port(era, 2), port(era, 3));
                 scope.push(fun);
-                let bod = encode(net, kind, scope, bod);
+                let bod = encode(net, _kind, scope, bod);
                 scope.pop();
-                link(net, port(fun, 2), bod);
-                port(fun, 0)
+                link(net, port(fun, 3), bod);
+                port(fun, 1)
             },
             &Var{ref idx} => {
                 let lam = scope[scope.len() - 1 - (*idx as usize)];
-                if get_node_kind(net, get_port_node(enter_port(net, port(lam, 1)))) == 0 {
-                    port(lam, 1)
+                if kind(net, node(enter(net, port(lam, 2)))) == 0 {
+                    port(lam, 2)
                 } else {
-                    *kind = *kind + 1;
-                    let dup = new_node(net, *kind);
-                    let arg = enter_port(net, port(lam, 1));
-                    link(net, port(dup, 1), arg);
-                    link(net, port(dup, 0), port(lam, 1));
-                    port(dup, 2)
+                    *_kind += 1;
+                    let dup = new_node(net, *_kind);
+                    let arg = enter(net, port(lam, 2));
+                    link(net, port(dup, 2), arg);
+                    link(net, port(dup, 1), port(lam, 2));
+                    port(dup, 3)
                 }
             }
         }
     }
-    let mut net : Net = Net { nodes: vec![0,1,2,0], reuse: vec![] };
+    let mut net : Net = Net { nodes: vec![0,0,1,2], reuse: vec![] };
     let mut kind : u32 = 1;
     let mut scope : Vec<u32> = Vec::new();
     let ptr : Port = encode(&mut net, &mut kind, &mut scope, term);
-    link(&mut net, 0, ptr);
+    link(&mut net, 1, ptr);
     net
 }
 
 pub fn from_net(net : &Net) -> Term {
     fn go(net : &Net, node_depth : &mut Vec<u32>, next : Port, exit : &mut Vec<Port>, depth : u32) -> Term {
-        let prev_port = enter_port(net, next);
-        let prev_slot = get_port_slot(prev_port);
-        let prev_node = get_port_node(prev_port);
+        let prev_port = enter(net, next);
+        let prev_slot = slot(prev_port);
+        let prev_node = node(prev_port);
         //println!("{} {:?} {} {} {} {}", next, exit, depth, prev_port, prev_slot, prev_node);
-        if get_node_kind(net, prev_node) == 1 {
+        if kind(net, prev_node) == 1 {
             match prev_slot {
-                0 => {
-                    node_depth[prev_node as usize] = depth;
-                    Lam{bod: Box::new(go(net, node_depth, port(prev_node, 2), exit, depth + 1))}
-                },
                 1 => {
+                    node_depth[prev_node as usize] = depth;
+                    Lam{bod: Box::new(go(net, node_depth, port(prev_node, 3), exit, depth + 1))}
+                },
+                2 => {
                     Var{idx: depth - node_depth[prev_node as usize] - 1}
                 },
                 _ => {
-                    let fun = go(net, node_depth, port(prev_node, 0), exit, depth);
-                    let arg = go(net, node_depth, port(prev_node, 1), exit, depth);
+                    let fun = go(net, node_depth, port(prev_node, 1), exit, depth);
+                    let arg = go(net, node_depth, port(prev_node, 2), exit, depth);
                     App{fun: Box::new(fun), arg: Box::new(arg)}
                 }
             }
-        } else if prev_slot > 0 {
+        } else if prev_slot > 1 {
             exit.push(prev_slot);
-            let term = go(net, node_depth, port(prev_node, 0), exit, depth);
+            let term = go(net, node_depth, port(prev_node, 1), exit, depth);
             exit.pop();
             term
         } else {
@@ -158,57 +158,52 @@ pub fn from_net(net : &Net) -> Term {
 pub fn reduce(net : &mut Net) -> Stats {
     let mut stats = Stats { loops: 0, rules: 0, betas: 0, dupls: 0, annis: 0 };
     let mut warp : Vec<u32> = Vec::new();
-    let mut next : Port = net.nodes[0];
+    let mut next : Port = net.nodes[1];
     let mut prev : Port;
     let mut back : Port;
-    while (next > 0) || (warp.len() > 0) {
-        next = if next == 0 { enter_port(net, port(warp.pop().unwrap(), 2)) } else { next };
-        prev = enter_port(net, next);
-        if get_port_slot(next) == 0 && get_port_slot(prev) == 0 && get_port_node(prev) != 0 {
-            stats.rules = stats.rules + 1;
-            back = enter_port(net, port(get_port_node(prev), get_node_meta(net, get_port_node(prev))));
-            rewrite(net, get_port_node(prev), get_port_node(next));
-            next = enter_port(net, back);
-        } else if get_port_slot(next) == 0 {
-            warp.push(get_port_node(next));
-            next = enter_port(net, port(get_port_node(next), 1));
+    while (next > 1) || (warp.len() > 0) {
+        next = if next == 1 { enter(net, port(warp.pop().unwrap(), 2)) } else { next };
+        prev = enter(net, next);
+        if slot(next) == 1 && slot(prev) == 1 && node(prev) != 0 {
+            stats.rules += 1;
+            back = enter(net, port(node(prev), meta(net, node(prev))));
+            rewrite(net, node(prev), node(next));
+            next = enter(net, back);
+        } else if slot(next) == 1 {
+            warp.push(node(next));
+            next = enter(net, port(node(next), 2));
         } else {
-            set_node_meta(net, get_port_node(next), get_port_slot(next));
-            next = enter_port(net, port(get_port_node(next), 0));
+            set_meta(net, node(next), slot(next));
+            next = enter(net, port(node(next), 1));
         }
-        stats.loops = stats.loops + 1;
+        stats.loops += 1;
     }
     stats
 }
 
 fn rewrite(net : &mut Net, x : Port, y : Port) {
-    if get_node_kind(net, x) == get_node_kind(net, y) {
-        let p0 = enter_port(net, port(x, 1));
-        let p1 = enter_port(net, port(y, 1));
+    if kind(net, x) == kind(net, y) {
+        let p0 = enter(net, port(x, 2));
+        let p1 = enter(net, port(y, 2));
         link(net, p0, p1);
-        let p0 = enter_port(net, port(x, 2));
-        let p1 = enter_port(net, port(y, 2));
+        let p0 = enter(net, port(x, 3));
+        let p1 = enter(net, port(y, 3));
         link(net, p0, p1);
         net.reuse.push(x);
         net.reuse.push(y);
     } else {
-        let t = get_node_kind(net, x);
-        let a = new_node(net, t);
-        let t = get_node_kind(net, y);
-        let b = new_node(net, t);
-        let t = enter_port(net, port(x, 1));
-        link(net, port(b, 0), t);
-        let t = enter_port(net, port(x, 2));
-        link(net, port(y, 0), t);
-        let t = enter_port(net, port(y, 1));
-        link(net, port(a, 0), t);
-        let t = enter_port(net, port(y, 2));
-        link(net, port(x, 0), t);
-        link(net, port(a, 1), port(b, 1));
-        link(net, port(a, 2), port(y, 1));
-        link(net, port(x, 1), port(b, 2));
-        link(net, port(x, 2), port(y, 2));
-        set_node_meta(net, x, 0);
-        set_node_meta(net, y, 0);
+        let t = kind(net, x); let a = new_node(net, t);
+        let t = kind(net, y); let b = new_node(net, t);
+        let t = enter(net, port(x, 2)); link(net, port(b, 1), t);
+        let t = enter(net, port(x, 3)); link(net, port(b, 2), t);
+        let t = enter(net, port(x, 3)); link(net, port(y, 1), t);
+        let t = enter(net, port(y, 2)); link(net, port(a, 1), t);
+        let t = enter(net, port(y, 3)); link(net, port(x, 1), t);
+        link(net, port(a, 2), port(b, 2));
+        link(net, port(a, 3), port(y, 2));
+        link(net, port(x, 2), port(b, 3));
+        link(net, port(x, 3), port(y, 3));
+        set_meta(net, x, 0);
+        set_meta(net, y, 0);
     }
 }

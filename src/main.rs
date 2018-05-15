@@ -11,7 +11,9 @@ fn main() {
     let code = b"/ #f #x /f /f x #f #x /f /f x";
     let term = from_string(code);
     let mut net = to_net(&term);
+    println!("net {:?}", net);
     let stats = reduce(&mut net);
     println!("Stats     : {:?}", stats);
     println!("{}", net.nodes.len());
+    println!("{}", from_net(&net));
 }

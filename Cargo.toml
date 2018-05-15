@@ -1,6 +1,6 @@
 [package]
 name = "absal"
-version = "0.1.3"
+version = "0.1.4"
 authors = ["Victor Maia <srvictormaia@gmail.com>"]
 description = "Optimal reduction of λ-terms"
 license = "MIT"

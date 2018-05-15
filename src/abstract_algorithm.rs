@@ -95,20 +95,21 @@ pub fn to_net(term : &Term) -> Net {
             },
             &Var{ref idx} => {
                 let lam = scope[scope.len() - 1 - (*idx as usize)];
-                if kind(net, node(enter(net, port(lam, 1)))) == 0 {
+                let arg = enter(net, port(lam, 1));
+                if kind(net, node(arg)) == 0 {
+                    net.reuse.push(node(arg));
                     port(lam, 1)
                 } else {
                     *_kind += 1;
                     let dup = new_node(net, *_kind);
-                    let arg = enter(net, port(lam, 1));
-                    link(net, port(dup, 1), arg);
+                    link(net, port(dup, 2), arg);
                     link(net, port(dup, 0), port(lam, 1));
-                    port(dup, 2)
+                    port(dup, 1)
                 }
             }
         }
     }
-    let mut net : Net = Net { nodes: vec![0,1,2,0], reuse: vec![] };
+    let mut net : Net = Net { nodes: vec![0,2,1,4], reuse: vec![] };
     let mut kind : u32 = 1;
     let mut scope : Vec<u32> = Vec::new();
     let ptr : Port = encode(&mut net, &mut kind, &mut scope, term);
@@ -121,7 +122,6 @@ pub fn from_net(net : &Net) -> Term {
         let prev_port = enter(net, next);
         let prev_slot = slot(prev_port);
         let prev_node = node(prev_port);
-        //println!("{} {:?} {} {} {} {}", next, exit, depth, prev_port, prev_slot, prev_node);
         if kind(net, prev_node) == 1 {
             match prev_slot {
                 0 => {

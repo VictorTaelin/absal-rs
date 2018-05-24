@@ -1,5 +1,7 @@
 #![allow(dead_code)]
 
+extern crate rand;
+
 #[derive(Clone, Debug)]
 pub struct Stats {
     pub loops: u32,
@@ -11,21 +13,60 @@ pub struct Stats {
 
 #[derive(Clone, Debug)]
 pub struct Net {
-    pub nodes: Vec<u32>,
-    pub reuse: Vec<u32>
+    pub index: u32,
+    pub alloc: Vec<u64>,
+    pub nodes: Vec<u32>
 }
 
 pub type Port = u32;
 
-pub fn new_node(net : &mut Net, kind : u32) -> u32 {
-    let node : u32 = match net.reuse.pop() {
-        Some(index) => index,
-        None        => {
-            let len = net.nodes.len();
-            net.nodes.resize(len + 4, 0);
-            (len as u32) / 4
-        }
+pub fn new_net() -> Net {
+    let mut net = Net {
+        index: 0,
+        alloc: vec![0;256*256],
+        nodes: vec![0;256*256*16]
     };
+    net.alloc[0] = 1;
+    return net;
+}
+
+
+fn hash(k: u64) -> u64 {
+    const C1: u64 = 0xff51afd7ed558ccd;
+    const C2: u64 = 0xc4ceb9fe1a85ec53;
+    const R: u64 = 33;
+    let mut tmp = k;
+    tmp ^= tmp >> R;
+    tmp = tmp.wrapping_mul(C1);
+    tmp ^= tmp >> R;
+    tmp = tmp.wrapping_mul(C2);
+    tmp ^= tmp >> R;
+    tmp
+}
+
+fn cmpxchg(vec : &mut Vec<u64>, i : u32, v0 : u64, v1 : u64) -> u64 {
+    let old = vec[i as usize];
+    if old == v0 { vec[i as usize] = v1; }
+    return old;
+}
+
+pub fn alloc(net : &mut Net, seed : u64) -> u32 {
+    let l = net.alloc.len() as u32;
+    let h = hash(seed);
+    let mut i = (h as u32) % l;
+    loop {
+        let k = cmpxchg(&mut net.alloc, i, 0, h);
+        if k == 0 || k == h {
+            return i * 4;
+        }
+        i = (i + 1) % l;
+    }
+}
+
+pub fn new_node(net : &mut Net, kind : u32) -> u32 {
+    net.index += 1;
+    let seed = net.index;
+    let node = alloc(net, seed as u64);
     net.nodes[port(node, 0) as usize] = port(node, 0);
     net.nodes[port(node, 1) as usize] = port(node, 1);
     net.nodes[port(node, 2) as usize] = port(node, 2);
@@ -45,21 +86,20 @@ pub fn slot(port : Port) -> u32 {
     port & 3
 }
 
-pub fn enter(net : &Net, port : Port) -> Port {
-    net.nodes[port as usize]
+pub fn is_wire(net : &Net, node : Port) -> bool {
+    return net.nodes[port(node,0) as usize] == port(node,0);
+}
+
+pub fn enter(net : &Net, next_ : Port) -> Port {
+    let mut next = net.nodes[next_ as usize];
+    while is_wire(net, node(next)) {
+        next = net.nodes[next as usize];
+    }
+    return next;
 }
 
 pub fn kind(net : &Net, node : u32) -> u32 {
     net.nodes[port(node, 3) as usize] >> 2
-}
-
-pub fn meta(net : &Net, node : u32) -> u32 {
-    net.nodes[port(node, 3) as usize] & 3
-}
-
-pub fn set_meta(net : &mut Net, node : u32, meta : u32) {
-    let ptr = port(node, 3) as usize;
-    net.nodes[ptr] = net.nodes[ptr] & 0xFFFFFFFC | meta;
 }
 
 pub fn link(net : &mut Net, ptr_a : u32, ptr_b : u32) {
@@ -69,58 +109,104 @@ pub fn link(net : &mut Net, ptr_a : u32, ptr_b : u32) {
 
 pub fn reduce(net : &mut Net) -> Stats {
     let mut stats = Stats { loops: 0, rules: 0, betas: 0, dupls: 0, annis: 0 };
-    let mut warp : Vec<u32> = Vec::new();
-    let mut next : Port = net.nodes[0];
-    let mut prev : Port;
-    let mut back : Port;
-    while (next > 0) || (warp.len() > 0) {
-        next = if next == 0 { enter(net, port(warp.pop().unwrap(), 2)) } else { next };
-        prev = enter(net, next);
-        if slot(next) == 0 && slot(prev) == 0 && node(prev) != 0 {
-            stats.rules += 1;
-            back = enter(net, port(node(prev), meta(net, node(prev))));
-            rewrite(net, node(prev), node(next));
-            next = enter(net, back);
-        } else if slot(next) == 0 {
-            warp.push(node(next));
-            next = enter(net, port(node(next), 1));
-        } else {
-            set_meta(net, node(next), slot(next));
-            next = enter(net, port(node(next), 0));
+    fn reduce(net : &mut Net, prev_ : u32, stats : &mut Stats) {
+        let mut prev : u32 = prev_;
+        let mut next : u32 = enter(net, prev);
+        let mut path : Vec<u32> = vec![];
+        while next != 0 {
+            let a = node(prev);
+            let b = node(next);
+            if slot(next) == 0 && slot(prev) == 0 && node(prev) != 0 {
+                prev = enter(net, port(a, path.pop().unwrap()));
+                rewrite(net, a, b);
+                stats.rules += 1;
+            } else if slot(next) == 0 {
+                reduce(net, port(b,1), stats);
+                reduce(net, port(b,2), stats);
+                break;
+            } else {
+                path.push(slot(next));
+                prev = port(node(next),0);
+            }
+            next = enter(net, prev);
         }
-        stats.loops += 1;
     }
-    stats
+    reduce(net, 0, &mut stats);
+    return stats;
 }
 
-pub fn rewrite(net : &mut Net, x : Port, y : Port) {
-    if kind(net, x) == kind(net, y) {
-        let p0 = enter(net, port(x, 1));
-        let p1 = enter(net, port(y, 1));
-        link(net, p0, p1);
-        let p0 = enter(net, port(x, 2));
-        let p1 = enter(net, port(y, 2));
-        link(net, p0, p1);
-        net.reuse.push(x);
-        net.reuse.push(y);
+
+pub fn rewrite(net : &mut Net, a : Port, b : Port) {
+    let p : u32 = net.nodes[port(a,1) as usize];
+    let q : u32 = net.nodes[port(a,2) as usize];
+    let r : u32 = net.nodes[port(b,1) as usize];
+    let s : u32 = net.nodes[port(b,2) as usize];
+    if kind(net,a) == kind(net,b) {
+        //  Q[ A2]   [ A1]P         Q[ A2]<,  ,>[ A1]P  
+        //     |       |               v   |  |   v     
+        // A2[ Q ]---[ P ]A1       A2[ S ]  \/  [ R ]A1 
+        //      \  A  /                |    /\    |     
+        //       [ B0]A0                \  |  |  /      
+        //         |                     \/    \/       
+        //         |                     /\    /\       
+        //       [ A0]B0                /  |  |  \      
+        //      /  B  \                |    \/    |     
+        // B1[ R ]---[ S ]B2       B1[ P ]  /\  [ Q ]B2 
+        //     |       |               ^   |  |   ^     
+        //  R[ B1]   [ B2]S         R[ B1]<'  '>[ B2]S  
+        net.nodes[port(a,0) as usize] = port(a,0);
+        net.nodes[port(a,1) as usize] = r;
+        net.nodes[port(a,2) as usize] = s;
+        net.nodes[port(b,0) as usize] = port(b,0);
+        net.nodes[port(b,1) as usize] = p;
+        net.nodes[port(b,2) as usize] = q;
     } else {
-        let t = kind(net, x);
-        let a = new_node(net, t);
-        let t = kind(net, y);
-        let b = new_node(net, t);
-        let t = enter(net, port(x, 1));
-        link(net, port(b, 0), t);
-        let t = enter(net, port(x, 2));
-        link(net, port(y, 0), t);
-        let t = enter(net, port(y, 1));
-        link(net, port(a, 0), t);
-        let t = enter(net, port(y, 2));
-        link(net, port(x, 0), t);
-        link(net, port(a, 1), port(b, 1));
-        link(net, port(a, 2), port(y, 1));
-        link(net, port(x, 1), port(b, 2));
-        link(net, port(x, 2), port(y, 2));
-        set_meta(net, x, 0);
-        set_meta(net, y, 0);
+        // Performs duplications
+        //                              Q[ A2]<-,     ,->[ A1]P       
+        //                                 v    |     |    v          
+        //  Q[ A2]   [ A1]P            A2[Bl0]  |     |  [Br0]A1      
+        //     |       |                   v    |     |    v          
+        // A2[ Q ]---[ P ]A1          Bl0[ Q ]--'     '--[ P ]Br0     
+        //      \  A  /                 /  Bl \Bl2   Br1/  Br \       
+        //       [ B0]A0          Bl1[Al2]---[Ar2]   [Al1]---[Ar1]Br2 
+        //         |                   |          \ /          |      
+        //         |                   |          / \          |      
+        //       [ A0]B0          Al2[Bl1]---[Br1]   [Bl2]---[Br2]Ar1 
+        //      /  B  \                 \  Al /Al1   Ar2\  Ar /       
+        // B1[ R ]---[ S ]B2          Al0[ R ]--,      ,--[ S ]Ar0    
+        //     |       |                   ^    |      |    ^         
+        //  R[ B1]   [ B2]S            B1[Al0]  |      |  [Ar0]B2     
+        //                                 ^    |      |    ^         
+        //                              R[ B1]<-'      '->[ B2]S      
+        //net.index += 1;
+        //let k  : u32 = net.index;
+        let k  : u64 = ((a as u64) << 32) + b as u64;
+        let i  : u32 = alloc(net, k);
+        let al : u32 = i + 0;
+        let ar : u32 = i + 1;
+        let bl : u32 = i + 2;
+        let br : u32 = i + 3;
+        net.nodes[port(a,0) as usize]  = port(a,0);
+        net.nodes[port(a,1) as usize]  = port(br,0);
+        net.nodes[port(a,2) as usize]  = port(bl,0);
+        net.nodes[port(b,0) as usize]  = port(b,0);
+        net.nodes[port(b,1) as usize]  = port(al,0);
+        net.nodes[port(b,2) as usize]  = port(ar,0);
+        net.nodes[port(al,0) as usize] = r;
+        net.nodes[port(al,1) as usize] = port(br,1);
+        net.nodes[port(al,2) as usize] = port(bl,1);
+        net.nodes[(al*4+3) as usize]   = kind(net,a) * 4;
+        net.nodes[port(ar,0) as usize] = s;
+        net.nodes[port(ar,1) as usize] = port(br,2);
+        net.nodes[port(ar,2) as usize] = port(bl,2);
+        net.nodes[(ar*4+3) as usize]   = kind(net,a) * 4;
+        net.nodes[port(bl,0) as usize] = q;
+        net.nodes[port(bl,1) as usize] = port(al,2);
+        net.nodes[port(bl,2) as usize] = port(ar,2);
+        net.nodes[(bl*4+3) as usize]   = kind(net,b) * 4;
+        net.nodes[port(br,0) as usize] = p;
+        net.nodes[port(br,1) as usize] = port(al,1);
+        net.nodes[port(br,2) as usize] = port(ar,1);
+        net.nodes[(br*4+3) as usize]   = kind(net,b) * 4;
     }
 }

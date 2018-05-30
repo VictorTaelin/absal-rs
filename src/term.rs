@@ -193,7 +193,7 @@ pub fn from_net(net : &Net) -> Term {
     go(net, &mut node_depth, 0, &mut exit, 0)
 }
 
-pub fn to_net(term : &Term) -> Net {
+pub fn to_net(term : &Term, allocs : u32) -> Net {
     fn encode(net : &mut Net, _kind : &mut u32, scope : &mut Vec<u32>, term : &Term) -> Port {
         match term {
             &App{ref fun, ref arg} => {
@@ -230,10 +230,11 @@ pub fn to_net(term : &Term) -> Net {
             }
         }
     }
-    let mut net : Net = new_net();
+    let mut net : Net = new_net(allocs);
     let mut kind : u32 = 1;
     let mut scope : Vec<u32> = Vec::new();
     let ptr : Port = encode(&mut net, &mut kind, &mut scope, term);
+    net.alloc[0] = 0;
     link(&mut net, 0, ptr);
     net
 }

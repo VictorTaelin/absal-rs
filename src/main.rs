@@ -258,7 +258,17 @@ fn trivial() -> ocl::Result<()> {
     let max_visit_stack_len = 4096; // Maximum length of visit stack.
 
     // Create buffers
-    let code = b"@A #f #x /f /f /f /f /f /f x @B #f #x /f /f /f /f /f /f x //#a #b //#c #d ///c #e #f #g //g /e /#h #i #j #k /i ///h i j k f /e /#h #i #j #k /j ///h i j k f d #e #f #g g a //#c #d /c /c /c d b #c ///c #d #e #f #g /e ///d e f g #d #e #f #g /f ///d e f g #d #e #f f A B";
+    let code = b"
+        @0 #f #x x
+        @1 #f #x /f x
+        @2 #f #x /f /f x
+        @add #a #b #s #z //a s //b s z
+        @plus #t /t add
+        @map1 #f #t #T /t #a #b //T /f a b
+        @map2 #f #t #T /t #a #b //T a /f b
+        /plus //map1 /add 1 //map2 /add 2 #t //t 1 0
+    ";
+
     let mut net = term::to_net(&term::from_string(code), max_alloc_spaces);
     println!("Input term: {}", term::from_net(&net));
 
@@ -286,6 +296,7 @@ fn trivial() -> ocl::Result<()> {
     // Spawns n parallel threads until done
     unsafe { 
         while thread_count[0] > 0 {
+            println!("Spawning {} threads.", thread_count[0]);
             core::enqueue_kernel(&queue, &reduce_kernel, 1, None, &[thread_count[0] as usize,1,1], None, None::<core::Event>, None::<&mut core::Event>)?;
             core::enqueue_read_buffer(&queue, &visit_buf, true, 0, &mut thread_count, None::<core::Event>, None::<&mut core::Event>)?;
         }

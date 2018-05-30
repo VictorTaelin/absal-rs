@@ -15,6 +15,7 @@ pub struct Stats {
 pub struct Net {
     pub index: u32,
     pub alloc: Vec<u64>,
+    pub visit: Vec<u32>,
     pub nodes: Vec<u32>
 }
 
@@ -23,15 +24,16 @@ pub type Port = u32;
 pub fn new_net() -> Net {
     let mut net = Net {
         index: 0,
-        alloc: vec![0;256*256],
-        nodes: vec![0;256*256*16]
+        alloc: vec![0xFFFFFFFF;10000],
+        visit: vec![0xFFFFFFFF;1024],
+        nodes: vec![0;10000*4*4]
     };
-    net.alloc[0] = 1;
+    net.alloc[0] = 0;
     return net;
 }
 
 
-fn hash(k: u64) -> u64 {
+pub fn hash(k: u64) -> u64 {
     const C1: u64 = 0xff51afd7ed558ccd;
     const C2: u64 = 0xc4ceb9fe1a85ec53;
     const R: u64 = 33;
@@ -55,8 +57,8 @@ pub fn alloc(net : &mut Net, seed : u64) -> u32 {
     let h = hash(seed);
     let mut i = (h as u32) % l;
     loop {
-        let k = cmpxchg(&mut net.alloc, i, 0, h);
-        if k == 0 || k == h {
+        let k = cmpxchg(&mut net.alloc, i, 0xFFFFFFFF, h);
+        if k == 0xFFFFFFFF || k == h {
             return i * 4;
         }
         i = (i + 1) % l;
@@ -87,7 +89,7 @@ pub fn slot(port : Port) -> u32 {
 }
 
 pub fn is_wire(net : &Net, node : Port) -> bool {
-    return net.nodes[port(node,0) as usize] == port(node,0);
+    return net.nodes[(node*4+3) as usize] & 1 == 1;
 }
 
 pub fn enter(net : &Net, next_ : Port) -> Port {
@@ -107,9 +109,36 @@ pub fn link(net : &mut Net, ptr_a : u32, ptr_b : u32) {
     net.nodes[ptr_b as usize] = ptr_a;
 }
 
+//pub fn reduce(net : &mut Net) -> Stats {
+    //let mut stats = Stats { loops: 0, rules: 0, betas: 0, dupls: 0, annis: 0 };
+    //let mut visit : Vec<u32> = vec![0];
+    //while visit.len() > 0 {
+        //let mut path : Vec<u32> = vec![];
+        //let mut prev : u32 = visit.pop().unwrap();
+        //let mut next : u32 = enter(net, prev);
+        //while next != 0 {
+            //let a = node(prev);
+            //let b = node(next);
+            //if slot(next) == 0 && slot(prev) == 0 && node(prev) != 0 {
+                //prev = enter(net, port(a, path.pop().unwrap()));
+                //rewrite(net, a, b);
+                //stats.rules += 1;
+            //} else if slot(next) == 0 {
+                //visit.push(port(b,1));
+                //visit.push(port(b,2));
+                //break;
+            //} else {
+                //path.push(slot(next));
+                //prev = port(node(next),0);
+            //}
+            //next = enter(net, prev);
+        //}
+    //}
+    //return stats;
+//}
+
 pub fn reduce(net : &mut Net) -> Stats {
-    let mut stats = Stats { loops: 0, rules: 0, betas: 0, dupls: 0, annis: 0 };
-    fn reduce(net : &mut Net, prev_ : u32, stats : &mut Stats) {
+    fn reduce(net : &mut Net, prev_ : u32) {
         let mut prev : u32 = prev_;
         let mut next : u32 = enter(net, prev);
         let mut path : Vec<u32> = vec![];
@@ -119,11 +148,9 @@ pub fn reduce(net : &mut Net) -> Stats {
             if slot(next) == 0 && slot(prev) == 0 && node(prev) != 0 {
                 prev = enter(net, port(a, path.pop().unwrap()));
                 rewrite(net, a, b);
-                stats.rules += 1;
             } else if slot(next) == 0 {
-                reduce(net, port(b,1), stats);
-                reduce(net, port(b,2), stats);
-                break;
+                reduce(net, port(b,1));
+                reduce(net, port(b,2));
             } else {
                 path.push(slot(next));
                 prev = port(node(next),0);
@@ -131,8 +158,8 @@ pub fn reduce(net : &mut Net) -> Stats {
             next = enter(net, prev);
         }
     }
-    reduce(net, 0, &mut stats);
-    return stats;
+    reduce(net, 0);
+    return Stats { loops: 0, rules: 0, betas: 0, dupls: 0, annis: 0 };
 }
 
 

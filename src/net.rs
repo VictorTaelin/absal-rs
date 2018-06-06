@@ -29,7 +29,7 @@ pub fn new_node(net : &mut Net, kind : u32) -> u32 {
     net.nodes[port(node, 0) as usize] = port(node, 0);
     net.nodes[port(node, 1) as usize] = port(node, 1);
     net.nodes[port(node, 2) as usize] = port(node, 2);
-    net.nodes[port(node, 3) as usize] = kind << 2;
+    net.nodes[port(node, 3) as usize] = kind;
     return node;
 }
 
@@ -50,7 +50,7 @@ pub fn enter(net : &Net, port : Port) -> Port {
 }
 
 pub fn kind(net : &Net, node : u32) -> u32 {
-    net.nodes[port(node, 3) as usize] >> 2
+    net.nodes[port(node, 3) as usize]
 }
 
 pub fn meta(net : &Net, node : u32) -> u32 {
@@ -94,7 +94,11 @@ pub fn reduce(net : &mut Net) -> Stats {
 }
 
 pub fn rewrite(net : &mut Net, x : Port, y : Port) {
-    if kind(net, x) == kind(net, y) {
+    if kind(net, y) == 0xFFFFFFFF {
+        panic!();
+        //let a = new_node(net, 0xFFFFFFFF);
+        //net.nodes[a * 4 + 1] = net.nodes[
+    } else if kind(net, x) == kind(net, y) {
         let p0 = enter(net, port(x, 1));
         let p1 = enter(net, port(y, 1));
         link(net, p0, p1);

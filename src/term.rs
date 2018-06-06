@@ -8,7 +8,8 @@ use std;
 pub enum Term {
     App {fun: Box<Term>, arg: Box<Term>},
     Lam {bod: Box<Term>},
-    Var {idx: u32}
+    Var {idx: u32},
+    Num {val: u64}
 }
 use self::Term::{*};
 
@@ -90,16 +91,23 @@ pub fn parse_term<'a>(code : &'a Str, ctx : &mut Context<'a>) -> (&'a Str, Term)
         // Variable
         _ => {
             let (code, nam) = parse_name(code);
-            let mut idx : u32 = 0;
-            let mut val : Option<Term> = None;
-            for i in (0..ctx.len()).rev() {
-                if ctx[i].0 == nam {
-                    val = ctx[i].1.clone();
-                    break;
+            match std::str::from_utf8(nam).unwrap().parse::<u64>() {
+                Ok(val) => {
+                    (code, Num{val})
+                },
+                Err(_e) => {
+                    let mut idx : u32 = 0;
+                    let mut val : Option<Term> = None;
+                    for i in (0..ctx.len()).rev() {
+                        if ctx[i].0 == nam {
+                            val = ctx[i].1.clone();
+                            break;
+                        }
+                        idx = idx + (match &ctx[i].1 { &Some(ref _t) => 0, &None => 1});
+                    }
+                    (code, match val { Some(term) => term, None => Var{idx} })
                 }
-                idx = idx + (match &ctx[i].1 { &Some(ref _t) => 0, &None => 1});
             }
-            (code, match val { Some(term) => term, None => Var{idx} })
         }
     }
 }
@@ -142,6 +150,9 @@ pub fn to_string(term : &Term) -> Vec<Chr> {
             &Var{idx} => {
                 code.append(&mut var_name(dph - idx));
             },
+            &Num{val} => {
+                code.append(&mut val.to_string().into_bytes());
+            }
         }
     }
     let mut code = Vec::new();
@@ -160,7 +171,14 @@ pub fn from_net(net : &Net) -> Term {
         let prev_port = enter(net, next);
         let prev_slot = slot(prev_port);
         let prev_node = node(prev_port);
-        if kind(net, prev_node) == 1 {
+        println!("hm {}", prev_node);
+        if kind(net, prev_node) == 0xFFFFFFFF {
+            Num{val: {
+                let x = net.nodes[(prev_node * 4 + 1) as usize] as u64;
+                let y = net.nodes[(prev_node * 4 + 2) as usize] as u64;
+                (x << 32) + y
+            }}
+        } else if kind(net, prev_node) == 1 {
             match prev_slot {
                 0 => {
                     node_depth[prev_node as usize] = depth;
@@ -228,6 +246,12 @@ pub fn to_net(term : &Term) -> Net {
                     link(net, port(dup, 0), port(lam, 1));
                     port(dup, 1)
                 }
+            },
+            &Num{val} => {
+                let num = new_node(net, 0xFFFFFFFF);
+                net.nodes[(num * 4 + 1) as usize] = (val >> 32) as u32;
+                net.nodes[(num * 4 + 2) as usize] = val as u32;
+                port(num, 0)
             }
         }
     }

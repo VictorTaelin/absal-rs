@@ -12,7 +12,7 @@ pub enum Term {
     Par {fst: Box<Term>, snd: Box<Term>},
     Fst {par: Box<Term>},
     Snd {par: Box<Term>},
-    Num {val: u64},
+    Num {val: u32},
     Add {fst: Box<Term>, snd: Box<Term>}
 }
 use self::Term::{*};
@@ -123,7 +123,7 @@ pub fn parse_term<'a>(code : &'a Str, ctx : &mut Context<'a>) -> (&'a Str, Term)
         // Variable
         _ => {
             let (code, nam) = parse_name(code);
-            match std::str::from_utf8(nam).unwrap().parse::<u64>() {
+            match std::str::from_utf8(nam).unwrap().parse::<u32>() {
                 Ok(val) => {
                     (code, Num{val})
                 },
@@ -224,23 +224,19 @@ pub fn from_net(net : &Net) -> Term {
         let prev_slot = slot(prev_port);
         let prev_node = node(prev_port);
         if kind(net, prev_node) == 0xFFFFFFFF {
-            Num{val: {
-                let x = net.nodes[(prev_node * 4 + 1) as usize] as u64;
-                let y = net.nodes[(prev_node * 4 + 2) as usize] as u64;
-                (x << 32) + y
-            }}
+            Num{val: {net.nodes[(prev_node * 4 + 1) as usize]}}
         } else if kind(net, prev_node) == 0xFFFFFFFD {
             match prev_slot {
                 0 => {
-                    let fst = go(net, node_depth, port(prev_node, 1), exit, depth);
-                    let snd = go(net, node_depth, port(prev_node, 2), exit, depth);
-                    Add{fst: Box::new(fst), snd: Box::new(snd)}
+                    panic!();
                 },
                 1 => {
                     panic!();
                 },
                 _ => {
-                    panic!();
+                    let fst = go(net, node_depth, port(prev_node, 0), exit, depth);
+                    let snd = go(net, node_depth, port(prev_node, 1), exit, depth);
+                    Add{fst: Box::new(fst), snd: Box::new(snd)}
                 }
             }
         } else if kind(net, prev_node) == 0xFFFFFFFE {
@@ -328,8 +324,7 @@ pub fn to_net(term : &Term) -> Net {
             },
             &Num{val} => {
                 let num = new_node(net, 0xFFFFFFFF);
-                net.nodes[(num * 4 + 1) as usize] = (val >> 32) as u32;
-                net.nodes[(num * 4 + 2) as usize] = val as u32;
+                net.nodes[(num * 4 + 1) as usize] = val;
                 port(num, 0)
             },
             &Par{ref fst, ref snd} => {
@@ -361,10 +356,10 @@ pub fn to_net(term : &Term) -> Net {
             &Add{ref fst, ref snd} => {
                 let add = new_node(net, 0xFFFFFFFD);
                 let fst = encode(net, _kind, scope, fst);
-                link(net, port(add, 1), fst);
+                link(net, port(add, 0), fst);
                 let snd = encode(net, _kind, scope, snd);
-                link(net, port(add, 2), snd);
-                port(add, 0)
+                link(net, port(add, 1), snd);
+                port(add, 2)
             },
         }
     }

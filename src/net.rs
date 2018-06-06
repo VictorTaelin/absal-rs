@@ -74,27 +74,10 @@ pub fn reduce(net : &mut Net) -> Stats {
             rewrite(net, node(prev), node(next));
             next = enter(net, back);
         } else if slot(next) == 0 {
-            if kind(net, node(next)) == 0xFFFFFFFD {
-                net.nodes[(node(next) * 4 + 3) as usize] = 0xFFFFFFFC;
-                warp.push(enter(net, port(node(next), 0)));
-                warp.push(port(node(next), 2));
-                next = enter(net, port(node(next), 1));
+            if kind(net, node(next)) == 0xFFFFFFFF {
+                next = 0;
             } else if kind(net, node(next)) == 0xFFFFFFFC {
-                net.nodes[(node(next) * 4 + 3) as usize] = 0xFFFFFFFD;
-                let fst = enter(net, port(node(next), 1));
-                let snd = enter(net, port(node(next), 2));
-                if kind(net, node(fst)) == 0xFFFFFFFF && kind(net, node(snd)) == 0xFFFFFFFF {
-                    let a = ((net.nodes[(node(fst) * 4 + 1) as usize] as u64) << 32) | (net.nodes[(node(fst) * 4 + 2) as usize] as u64);
-                    let b = ((net.nodes[(node(snd) * 4 + 1) as usize] as u64) << 32) | (net.nodes[(node(snd) * 4 + 2) as usize] as u64);
-                    net.nodes[(node(next) * 4 + 1) as usize] = ((a+b) >> 32) as u32;
-                    net.nodes[(node(next) * 4 + 2) as usize] = (a+b) as u32;
-                    net.nodes[(node(next) * 4 + 3) as usize] = 0xFFFFFFFF;
-                    net.reuse.push(node(fst));
-                    net.reuse.push(node(snd));
-                }
-                next = 0;
-            } else if kind(net, node(next)) == 0xFFFFFFFF {
-                next = 0;
+                next = enter(net, port(node(next), 1));
             } else {
                 warp.push(port(node(next), 2));
                 next = enter(net, port(node(next), 1));
@@ -108,41 +91,73 @@ pub fn reduce(net : &mut Net) -> Stats {
     stats
 }
 
+pub fn ani_bin(net : &mut Net, x : Port, y : Port) {
+    let p0 = enter(net, port(x, 1));
+    let p1 = enter(net, port(y, 1)); link(net, p0, p1);
+    let p0 = enter(net, port(x, 2));
+    let p1 = enter(net, port(y, 2));
+    link(net, p0, p1);
+    net.reuse.push(x);
+    net.reuse.push(y);
+}
+
+pub fn dup_bin(net : &mut Net, x : Port, y : Port) {
+    let t = kind(net, x); let a = new_node(net, t);
+    let t = kind(net, y); let b = new_node(net, t);
+    let t = enter(net, port(x, 1)); link(net, port(b, 0), t);
+    let t = enter(net, port(x, 2)); link(net, port(y, 0), t);
+    let t = enter(net, port(y, 1)); link(net, port(a, 0), t);
+    let t = enter(net, port(y, 2)); link(net, port(x, 0), t);
+    link(net, port(a, 1), port(b, 1));
+    link(net, port(a, 2), port(y, 1));
+    link(net, port(x, 1), port(b, 2));
+    link(net, port(x, 2), port(y, 2));
+}
+
+pub fn dup_una(net : &mut Net, x : Port, y : Port) {
+    let z = new_node(net, 0xFFFFFFFC);
+    net.nodes[(z * 4 + 1) as usize] = net.nodes[(y * 4 + 1) as usize];
+    let t = enter(net, port(x, 1)); link(net, t, port(y, 0));
+    let t = enter(net, port(x, 2)); link(net, t, port(z, 0));
+    let t = enter(net, port(y, 2)); link(net, t, port(x, 0));
+    link(net, port(x, 1), port(y, 2));
+    link(net, port(x, 2), port(z, 2));
+}
+
+pub fn dup_zer(net : &mut Net, x : Port, y : Port) {
+    let z = new_node(net, 0xFFFFFFFF);
+    net.nodes[(z * 4 + 1) as usize] = net.nodes[(y * 4 + 1) as usize];
+    net.nodes[(z * 4 + 2) as usize] = net.nodes[(y * 4 + 2) as usize];
+    let t = enter(net, port(x, 1)); link(net, t, port(y, 0));
+    let t = enter(net, port(x, 2)); link(net, t, port(z, 0));
+    net.reuse.push(x);
+}
+
+pub fn pri_beg(net : &mut Net, x : Port, y : Port) {
+    let p0 = enter(net, port(x, 1));
+    link(net, p0, port(x, 0));
+    net.nodes[(x * 4 + 1) as usize] = net.nodes[(y * 4 + 1) as usize];
+    net.nodes[(x * 4 + 3) as usize] = 0xFFFFFFFC;
+    net.reuse.push(y);
+}
+
+pub fn pri_end(net : &mut Net, x : Port, y : Port) {
+    net.nodes[(y * 4 + 1) as usize] += net.nodes[(x * 4 + 1) as usize];
+    let p0 = enter(net, port(x, 2));
+    link(net, p0, port(y, 0));
+    net.reuse.push(x);
+}
+
+// TODO: remove constants, separate kinds / labels
 pub fn rewrite(net : &mut Net, x : Port, y : Port) {
-    if kind(net, y) == 0xFFFFFFFF {
-        let z = new_node(net, 0xFFFFFFFF);
-        net.nodes[(z * 4 + 1) as usize] = net.nodes[(y * 4 + 1) as usize];
-        net.nodes[(z * 4 + 2) as usize] = net.nodes[(y * 4 + 2) as usize];
-        let p0 = enter(net, port(x, 1));
-        let p1 = enter(net, port(x, 2));
-        link(net, p0, port(y, 0));
-        link(net, p1, port(z, 0));
-        net.reuse.push(x);
-    } else if kind(net, x) == kind(net, y) {
-        let p0 = enter(net, port(x, 1));
-        let p1 = enter(net, port(y, 1));
-        link(net, p0, p1);
-        let p0 = enter(net, port(x, 2));
-        let p1 = enter(net, port(y, 2));
-        link(net, p0, p1);
-        net.reuse.push(x);
-        net.reuse.push(y);
-    } else {
-        let t = kind(net, x);
-        let a = new_node(net, t);
-        let t = kind(net, y);
-        let b = new_node(net, t);
-        let t = enter(net, port(x, 1));
-        link(net, port(b, 0), t);
-        let t = enter(net, port(x, 2));
-        link(net, port(y, 0), t);
-        let t = enter(net, port(y, 1));
-        link(net, port(a, 0), t);
-        let t = enter(net, port(y, 2));
-        link(net, port(x, 0), t);
-        link(net, port(a, 1), port(b, 1));
-        link(net, port(a, 2), port(y, 1));
-        link(net, port(x, 1), port(b, 2));
-        link(net, port(x, 2), port(y, 2));
-    }
+    if      kind(net, x) == 0xFFFFFFFD && kind(net, y) == 0xFFFFFFFF { pri_beg(net, x, y); }
+    else if kind(net, x) == 0xFFFFFFFF && kind(net, y) == 0xFFFFFFFD { pri_beg(net, y, x); }
+    else if kind(net, x) == 0xFFFFFFFC && kind(net, y) == 0xFFFFFFFF { pri_end(net, x, y); }
+    else if kind(net, x) == 0xFFFFFFFF && kind(net, y) == 0xFFFFFFFC { pri_end(net, y, x); }
+    else if kind(net, x) == 0xFFFFFFFC && kind(net, y)  < 0xFFFFFFF0 { dup_una(net, y, x); }
+    else if kind(net, x)  < 0xFFFFFFF0 && kind(net, y) == 0xFFFFFFFC { dup_una(net, x, y); }
+    else if kind(net, x) == 0xFFFFFFFF && kind(net, y)  < 0xFFFFFFF0 { dup_zer(net, y, x); }
+    else if kind(net, x)  < 0xFFFFFFF0 && kind(net, y) == 0xFFFFFFFF { dup_zer(net, x, y); }
+    else if kind(net, x) == kind(net, y)                             { ani_bin(net, x, y); }
+    else                                                             { dup_bin(net, x, y); }
 }

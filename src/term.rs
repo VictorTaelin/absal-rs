@@ -238,35 +238,3 @@ pub fn to_net(term : &Term) -> Net {
     link(&mut net, 0, ptr);
     net
 }
-
-pub fn rewrite(net : &mut Net, x : Port, y : Port) {
-    if kind(net, x) == kind(net, y) {
-        let p0 = enter(net, port(x, 1));
-        let p1 = enter(net, port(y, 1));
-        link(net, p0, p1);
-        let p0 = enter(net, port(x, 2));
-        let p1 = enter(net, port(y, 2));
-        link(net, p0, p1);
-        net.reuse.push(x);
-        net.reuse.push(y);
-    } else {
-        let t = kind(net, x);
-        let a = new_node(net, t);
-        let t = kind(net, y);
-        let b = new_node(net, t);
-        let t = enter(net, port(x, 1));
-        link(net, port(b, 0), t);
-        let t = enter(net, port(x, 2));
-        link(net, port(y, 0), t);
-        let t = enter(net, port(y, 1));
-        link(net, port(a, 0), t);
-        let t = enter(net, port(y, 2));
-        link(net, port(x, 0), t);
-        link(net, port(a, 1), port(b, 1));
-        link(net, port(a, 2), port(y, 1));
-        link(net, port(x, 1), port(b, 2));
-        link(net, port(x, 2), port(y, 2));
-        set_meta(net, x, 0);
-        set_meta(net, y, 0);
-    }
-}

@@ -74,11 +74,30 @@ pub fn reduce(net : &mut Net) -> Stats {
             rewrite(net, node(prev), node(next));
             next = enter(net, back);
         } else if slot(next) == 0 {
-            if kind(net, node(next)) != 0xFFFFFFFF {
+            if kind(net, node(next)) == 0xFFFFFFFD {
+                net.nodes[(node(next) * 4 + 3) as usize] = 0xFFFFFFFC;
+                warp.push(enter(net, port(node(next), 0)));
                 warp.push(port(node(next), 2));
                 next = enter(net, port(node(next), 1));
-            } else {
+            } else if kind(net, node(next)) == 0xFFFFFFFC {
+                net.nodes[(node(next) * 4 + 3) as usize] = 0xFFFFFFFD;
+                let fst = enter(net, port(node(next), 1));
+                let snd = enter(net, port(node(next), 2));
+                if kind(net, node(fst)) == 0xFFFFFFFF && kind(net, node(snd)) == 0xFFFFFFFF {
+                    let a = ((net.nodes[(node(fst) * 4 + 1) as usize] as u64) << 32) | (net.nodes[(node(fst) * 4 + 2) as usize] as u64);
+                    let b = ((net.nodes[(node(snd) * 4 + 1) as usize] as u64) << 32) | (net.nodes[(node(snd) * 4 + 2) as usize] as u64);
+                    net.nodes[(node(next) * 4 + 1) as usize] = ((a+b) >> 32) as u32;
+                    net.nodes[(node(next) * 4 + 2) as usize] = (a+b) as u32;
+                    net.nodes[(node(next) * 4 + 3) as usize] = 0xFFFFFFFF;
+                    net.reuse.push(node(fst));
+                    net.reuse.push(node(snd));
+                }
                 next = 0;
+            } else if kind(net, node(next)) == 0xFFFFFFFF {
+                next = 0;
+            } else {
+                warp.push(port(node(next), 2));
+                next = enter(net, port(node(next), 1));
             }
         } else {
             exit.push(slot(next));
@@ -91,9 +110,14 @@ pub fn reduce(net : &mut Net) -> Stats {
 
 pub fn rewrite(net : &mut Net, x : Port, y : Port) {
     if kind(net, y) == 0xFFFFFFFF {
-        let a = new_node(net, 0xFFFFFFFF);
-        net.nodes[(a * 4 + 1) as usize] = net.nodes[(y * 4 + 1) as usize];
-        net.nodes[(a * 4 + 2) as usize] = net.nodes[(y * 4 + 2) as usize];
+        let z = new_node(net, 0xFFFFFFFF);
+        net.nodes[(z * 4 + 1) as usize] = net.nodes[(y * 4 + 1) as usize];
+        net.nodes[(z * 4 + 2) as usize] = net.nodes[(y * 4 + 2) as usize];
+        let p0 = enter(net, port(x, 1));
+        let p1 = enter(net, port(x, 2));
+        link(net, p0, port(y, 0));
+        link(net, p1, port(z, 0));
+        net.reuse.push(x);
     } else if kind(net, x) == kind(net, y) {
         let p0 = enter(net, port(x, 1));
         let p1 = enter(net, port(y, 1));

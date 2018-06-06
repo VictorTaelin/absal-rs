@@ -66,7 +66,7 @@ pub fn reduce(net : &mut Net) -> Stats {
     let mut prev : Port;
     let mut back : Port;
     while (next > 0) || (warp.len() > 0) {
-        next = if next == 0 { enter(net, port(warp.pop().unwrap(), 2)) } else { next };
+        next = if next == 0 { enter(net, warp.pop().unwrap()) } else { next };
         prev = enter(net, next);
         if slot(next) == 0 && slot(prev) == 0 && node(prev) != 0 {
             stats.rules += 1;
@@ -75,7 +75,7 @@ pub fn reduce(net : &mut Net) -> Stats {
             next = enter(net, back);
         } else if slot(next) == 0 {
             if kind(net, node(next)) != 0xFFFFFFFF {
-                warp.push(node(next));
+                warp.push(port(node(next), 2));
                 next = enter(net, port(node(next), 1));
             } else {
                 next = 0;

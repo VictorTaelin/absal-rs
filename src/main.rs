@@ -134,7 +134,6 @@ fn trivial() -> ocl::Result<()> {
 
                 u32 A = nodes_buf[visit_buf[get_global_id(0)]];
                 q32 a = nodes_vec_buf[node(A)];
-
                 u32 I = A;
                 while (a.w >= 0xFFFFFFFE) { // it is a wire
                     if (a.x != 0xFFFFFFFF && atomic_cmpxchg(&nodes_buf[node(A)*4+0], a.x, 0xFFFFFFFF) == a.x) {
@@ -173,7 +172,7 @@ fn trivial() -> ocl::Result<()> {
     // Initial setup
     let platform_id = core::default_platform()?;
     let device_ids = core::get_device_ids(&platform_id, None, None)?;
-    let device_id = device_ids[1];
+    let device_id = device_ids[device_ids.len() - 1];
     let context_properties = ContextProperties::new().platform(platform_id);
     let context = core::create_context(Some(&context_properties), &[device_id], None, None)?;
     let src_cstring = CString::new(src)?;

@@ -34,7 +34,9 @@ fn main() {
         @c16777216 //mul c2 c8388608
         @replicate #n #x #cons #nil //n #r //cons x r nil
         @sum #list //list #a #b + a b 0
-        /sum //replicate c16777216 1
+        @F @A #f #x /f /f /f /f /f /f /f /f /f /f x @B #f #x /f /f /f /f /f /f /f /f /f /f x //#a #b //#c #d ///c #e #f #g //g /e /#h #i #j #k /i ///h i j k f /e /#h #i #j #k /j ///h i j k f d #e #f #g g a //#c #d /c /c /c d b #c ///c #d #e #f #g /e ///d e f g #d #e #f #g /f ///d e f g #d #e #f f A B
+        @num255 - //c8 #x + x x 1 1
+        num255
     ");
     println!("Input: {}\n", term);
     let mut net = absal::term::to_net(&term);
@@ -42,17 +44,3 @@ fn main() {
     println!("Output: {}\n", absal::term::from_net(&net));
     println!("Stats: {:?}", stats);
 }
-
-/*
-$ cargo build --release; time ./main
-    Finished release [optimized] target(s) in 0.0 secs
-Input: /#a //a #b #c +b c 0 //#a #b #c #d //a #e //c b e d //#a #b #c #d //a /b c d #a #b /a /a b //#a #b #c #d //a /b c d #a #b /a /a b //#a #b #c #d //a /b c d #a #b /a /a b //#a #b #c #d //a /b c d #a #b /a /a b //#a #b #c #d //a /b c d #a #b /a /a b //#a #b #c #d //a /b c d #a #b /a /a b //#a #b #c #d //a /b c d #a #b /a /a b //#a #b #c #d //a /b c d #a #b /a /a b //#a #b #c #d //a /b c d #a #b /a /a b //#a #b #c #d //a /b c d #a #b /a /a b //#a #b #c #d //a /b c d #a #b /a /a b //#a #b #c #d //a /b c d #a #b /a /a b //#a #b #c #d //a /b c d #a #b /a /a b //#a #b #c #d //a /b c d #a #b /a /a b //#a #b #c #d //a /b c d #a #b /a /a b //#a #b #c #d //a /b c d #a #b /a /a b //#a #b #c #d //a /b c d #a #b /a /a b //#a #b #c #d //a /b c d #a #b /a /a b //#a #b #c #d //a /b c d #a #b /a /a b //#a #b #c #d //a /b c d #a #b /a /a b //#a #b #c #d //a /b c d #a #b /a /a b //#a #b #c #d //a /b c d #a #b /a /a b //#a #b #c #d //a /b c d #a #b /a /a b #a #b /a /a b 1
-
-Output: 16777216
-
-Stats: Stats { loops: 67109305, rules: 33554652, betas: 0, dupls: 0, annis: 0 }
-
-real	0m0.920s
-user	0m0.677s
-sys	    0m0.226s
-*/

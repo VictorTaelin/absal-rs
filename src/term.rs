@@ -8,7 +8,10 @@ use std;
 pub enum Term {
     App {fun: Box<Term>, arg: Box<Term>},
     Lam {bod: Box<Term>},
-    Var {idx: u32}
+    Var {idx: u32},
+    Put {val: Box<Term>}, 
+    Pop {val: Box<Term>},
+    Dup {val: Box<Term>, bod: Box<Term>}
 }
 use self::Term::{*};
 
@@ -52,7 +55,7 @@ pub fn parse_term<'a>(code : &'a Str, ctx : &mut Context<'a>) -> (&'a Str, Term)
         // Newline
         b'\n' => parse_term(&code[1..], ctx),
         // Applicationn
-        b'/' => {
+        b':' => {
             let (code, fun) = parse_term(&code[1..], ctx);
             let (code, arg) = parse_term(code, ctx);
             let fun = Box::new(fun);
@@ -77,7 +80,7 @@ pub fn parse_term<'a>(code : &'a Str, ctx : &mut Context<'a>) -> (&'a Str, Term)
 
         },
         // Let
-        b':' => {
+        b'/' => {
             let (code, nam) = parse_name(&code[1..]);
             let (code, val) = parse_term(code, ctx);
             let (code, bod) = parse_term(code, extend(nam, None, ctx));
@@ -86,6 +89,28 @@ pub fn parse_term<'a>(code : &'a Str, ctx : &mut Context<'a>) -> (&'a Str, Term)
             let arg = Box::new(val);
             narrow(ctx);
             (code, App{fun,arg})
+        },
+        // Dup
+        b'=' => {
+            let (code, nam) = parse_name(&code[1..]);
+            let (code, val) = parse_term(code, ctx);
+            let (code, bod) = parse_term(code, extend(nam, None, ctx));
+            let val = Box::new(val);
+            let bod = Box::new(bod);
+            narrow(ctx);
+            (code, Dup{val,bod})
+        },
+        // Put
+        b'|' => {
+            let (code, val) = parse_term(&code[1..], ctx);
+            let val = Box::new(val);
+            (code, Put{val})
+        },
+        // Pop
+        b'~' => {
+            let (code, val) = parse_term(&code[1..], ctx);
+            let val = Box::new(val);
+            (code, Pop{val})
         },
         // Variable
         _ => {
@@ -128,7 +153,7 @@ pub fn to_string(term : &Term) -> Vec<Chr> {
     fn build(code : &mut Vec<u8>, term : &Term, dph : u32) {
         match term {
             &App{ref fun, ref arg} => {
-                code.extend_from_slice(b"/");
+                code.extend_from_slice(b":");
                 build(code, &fun, dph);
                 code.extend_from_slice(b" ");
                 build(code, &arg, dph);
@@ -141,6 +166,22 @@ pub fn to_string(term : &Term) -> Vec<Chr> {
             }
             &Var{idx} => {
                 code.append(&mut var_name(dph - idx));
+            },
+            &Put{ref val} => {
+                code.extend_from_slice(b"|");
+                build(code, &val, dph);
+            },
+            &Pop{ref val} => {
+                code.extend_from_slice(b"~");
+                build(code, &val, dph);
+            },
+            &Dup{ref val, ref bod} => {
+                code.extend_from_slice(b"=");
+                code.append(&mut var_name(dph + 1));
+                code.extend_from_slice(b" ");
+                build(code, &val, dph);
+                code.extend_from_slice(b" ");
+                build(code, &bod, dph + 1);
             },
         }
     }
@@ -194,13 +235,13 @@ pub fn from_net(net : &Net) -> Term {
 }
 
 pub fn to_net(term : &Term) -> Net {
-    fn encode(net : &mut Net, _kind : &mut u32, scope : &mut Vec<u32>, term : &Term) -> Port {
+    fn encode(net : &mut Net, level : u32, scope : &mut Vec<u32>, term : &Term) -> Port {
         match term {
             &App{ref fun, ref arg} => {
                 let app = new_node(net, 1);
-                let fun = encode(net, _kind, scope, fun);
+                let fun = encode(net, level, scope, fun);
                 link(net, port(app, 0), fun);
-                let arg = encode(net, _kind, scope, arg);
+                let arg = encode(net, level, scope, arg);
                 link(net, port(app, 1), arg);
                 port(app, 2)
             },
@@ -210,7 +251,7 @@ pub fn to_net(term : &Term) -> Net {
                 link(net, port(fun, 1), port(era, 0));
                 link(net, port(era, 1), port(era, 2));
                 scope.push(fun);
-                let bod = encode(net, _kind, scope, bod);
+                let bod = encode(net, level, scope, bod);
                 scope.pop();
                 link(net, port(fun, 2), bod);
                 port(fun, 0)
@@ -222,19 +263,24 @@ pub fn to_net(term : &Term) -> Net {
                     net.reuse.push(node(arg));
                     port(lam, 1)
                 } else {
-                    *_kind += 1;
-                    let dup = new_node(net, *_kind);
+                    let dup = new_node(net, level);
                     link(net, port(dup, 2), arg);
                     link(net, port(dup, 0), port(lam, 1));
                     port(dup, 1)
                 }
-            }
+            },
+            &Put{ref val} => {
+                encode(net, level + 1, scope, val)
+            },
+            &Pop{ref val} => {
+                encode(net, level - 1, scope, val)
+            },
+            _ => panic!()
         }
     }
     let mut net : Net = Net { nodes: vec![0,2,1,4], reuse: vec![] };
-    let mut kind : u32 = 1;
     let mut scope : Vec<u32> = Vec::new();
-    let ptr : Port = encode(&mut net, &mut kind, &mut scope, term);
+    let ptr : Port = encode(&mut net, 10, &mut scope, term);
     link(&mut net, 0, ptr);
     net
 }

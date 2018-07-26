@@ -1,6 +1,6 @@
 #![allow(dead_code)]
 
-use net::*;
+//use net::*;
 use std;
 
 // λ-Terms are either lambdas, variables or applications.
@@ -10,7 +10,6 @@ pub enum Term {
     Lam {bod: Box<Term>},
     Var {idx: u32},
     Put {val: Box<Term>}, 
-    Pop {val: Box<Term>},
     Dup {val: Box<Term>, bod: Box<Term>}
 }
 use self::Term::{*};
@@ -106,12 +105,6 @@ pub fn parse_term<'a>(code : &'a Str, ctx : &mut Context<'a>) -> (&'a Str, Term)
             let val = Box::new(val);
             (code, Put{val})
         },
-        // Pop
-        b'~' => {
-            let (code, val) = parse_term(&code[1..], ctx);
-            let val = Box::new(val);
-            (code, Pop{val})
-        },
         // Variable
         _ => {
             let (code, nam) = parse_name(code);
@@ -171,10 +164,6 @@ pub fn to_string(term : &Term) -> Vec<Chr> {
                 code.extend_from_slice(b"|");
                 build(code, &val, dph);
             },
-            &Pop{ref val} => {
-                code.extend_from_slice(b"~");
-                build(code, &val, dph);
-            },
             &Dup{ref val, ref bod} => {
                 code.extend_from_slice(b"=");
                 code.append(&mut var_name(dph + 1));
@@ -196,91 +185,88 @@ impl std::fmt::Display for Term {
     }
 }
 
-pub fn from_net(net : &Net) -> Term {
-    fn go(net : &Net, node_depth : &mut Vec<u32>, next : Port, exit : &mut Vec<Port>, depth : u32) -> Term {
-        let prev_port = enter(net, next);
-        let prev_slot = slot(prev_port);
-        let prev_node = node(prev_port);
-        if kind(net, prev_node) == 1 {
-            match prev_slot {
-                0 => {
-                    node_depth[prev_node as usize] = depth;
-                    Lam{bod: Box::new(go(net, node_depth, port(prev_node, 2), exit, depth + 1))}
-                },
-                1 => {
-                    Var{idx: depth - node_depth[prev_node as usize] - 1}
-                },
-                _ => {
-                    let fun = go(net, node_depth, port(prev_node, 0), exit, depth);
-                    let arg = go(net, node_depth, port(prev_node, 1), exit, depth);
-                    App{fun: Box::new(fun), arg: Box::new(arg)}
-                }
-            }
-        } else if prev_slot > 0 {
-            exit.push(prev_slot);
-            let term = go(net, node_depth, port(prev_node, 0), exit, depth);
-            exit.pop();
-            term
-        } else {
-            let e = exit.pop().unwrap();
-            let term = go(net, node_depth, port(prev_node, e), exit, depth);
-            exit.push(e);
-            term
-        }
-    }
-    let mut node_depth : Vec<u32> = Vec::with_capacity(net.nodes.len() / 4);
-    let mut exit : Vec<u32> = Vec::new();
-    node_depth.resize(net.nodes.len() / 4, 0);
-    go(net, &mut node_depth, 0, &mut exit, 0)
-}
+//pub fn from_net(net : &Net) -> Term {
+    //fn go(net : &Net, node_depth : &mut Vec<u32>, next : Port, exit : &mut Vec<Port>, depth : u32) -> Term {
+        //let prev_port = enter(net, next);
+        //let prev_slot = slot(prev_port);
+        //let prev_node = node(prev_port);
+        //if kind(net, prev_node) == 1 {
+            //match prev_slot {
+                //0 => {
+                    //node_depth[prev_node as usize] = depth;
+                    //Lam{bod: Box::new(go(net, node_depth, port(prev_node, 2), exit, depth + 1))}
+                //},
+                //1 => {
+                    //Var{idx: depth - node_depth[prev_node as usize] - 1}
+                //},
+                //_ => {
+                    //let fun = go(net, node_depth, port(prev_node, 0), exit, depth);
+                    //let arg = go(net, node_depth, port(prev_node, 1), exit, depth);
+                    //App{fun: Box::new(fun), arg: Box::new(arg)}
+                //}
+            //}
+        //} else if prev_slot > 0 {
+            //exit.push(prev_slot);
+            //let term = go(net, node_depth, port(prev_node, 0), exit, depth);
+            //exit.pop();
+            //term
+        //} else {
+            //let e = exit.pop().unwrap();
+            //let term = go(net, node_depth, port(prev_node, e), exit, depth);
+            //exit.push(e);
+            //term
+        //}
+    //}
+    //let mut node_depth : Vec<u32> = Vec::with_capacity(net.nodes.len() / 4);
+    //let mut exit : Vec<u32> = Vec::new();
+    //node_depth.resize(net.nodes.len() / 4, 0);
+    //go(net, &mut node_depth, 0, &mut exit, 0)
+//}
 
-pub fn to_net(term : &Term) -> Net {
-    fn encode(net : &mut Net, level : u32, scope : &mut Vec<u32>, term : &Term) -> Port {
-        match term {
-            &App{ref fun, ref arg} => {
-                let app = new_node(net, 1);
-                let fun = encode(net, level, scope, fun);
-                link(net, port(app, 0), fun);
-                let arg = encode(net, level, scope, arg);
-                link(net, port(app, 1), arg);
-                port(app, 2)
-            },
-            &Lam{ref bod} => {
-                let fun = new_node(net, 1);
-                let era = new_node(net, 0);
-                link(net, port(fun, 1), port(era, 0));
-                link(net, port(era, 1), port(era, 2));
-                scope.push(fun);
-                let bod = encode(net, level, scope, bod);
-                scope.pop();
-                link(net, port(fun, 2), bod);
-                port(fun, 0)
-            },
-            &Var{ref idx} => {
-                let lam = scope[scope.len() - 1 - (*idx as usize)];
-                let arg = enter(net, port(lam, 1));
-                if kind(net, node(arg)) == 0 {
-                    net.reuse.push(node(arg));
-                    port(lam, 1)
-                } else {
-                    let dup = new_node(net, level);
-                    link(net, port(dup, 2), arg);
-                    link(net, port(dup, 0), port(lam, 1));
-                    port(dup, 1)
-                }
-            },
-            &Put{ref val} => {
-                encode(net, level + 1, scope, val)
-            },
-            &Pop{ref val} => {
-                encode(net, level - 1, scope, val)
-            },
-            _ => panic!()
-        }
-    }
-    let mut net : Net = Net { nodes: vec![0,2,1,4], reuse: vec![] };
-    let mut scope : Vec<u32> = Vec::new();
-    let ptr : Port = encode(&mut net, 10, &mut scope, term);
-    link(&mut net, 0, ptr);
-    net
-}
+//pub fn to_net(term : &Term) -> Net {
+    //fn encode(net : &mut Net, level : u32, scope : &mut Vec<u32>, term : &Term) -> Port {
+        //match term {
+            //&App{ref fun, ref arg} => {
+                //let app = new_node(net, 1);
+                //let fun = encode(net, level, scope, fun);
+                //link(net, port(app, 0), fun);
+                //let arg = encode(net, level, scope, arg);
+                //link(net, port(app, 1), arg);
+                //port(app, 2)
+            //},
+            //&Lam{ref bod} => {
+                //let fun = new_node(net, 1);
+                //let era = new_node(net, 0);
+                //link(net, port(fun, 1), port(era, 0));
+                //link(net, port(era, 1), port(era, 2));
+                //scope.push(fun);
+                //let bod = encode(net, level, scope, bod);
+                //scope.pop();
+                //link(net, port(fun, 2), bod);
+                //port(fun, 0)
+            //},
+            //&Var{ref idx} => {
+                //let lam = scope[scope.len() - 1 - (*idx as usize)];
+                //let arg = enter(net, port(lam, 1));
+                //if kind(net, node(arg)) == 0 {
+                    //net.reuse.push(node(arg));
+                    //port(lam, 1)
+                //} else {
+                    //let dup = new_node(net, level);
+                    //link(net, port(dup, 2), arg);
+                    //link(net, port(dup, 0), port(lam, 1));
+                    //port(dup, 1)
+                //}
+            //},
+            //&Put{ref val} => {
+                //encode(net, level + 1, scope, val)
+            //},
+            //_ => panic!()
+        //}
+    //}
+    //let mut net : Net = Net { nodes: vec![0,2,1,4], reuse: vec![] };
+    //let mut scope : Vec<u32> = Vec::new();
+    //let ptr : Port = encode(&mut net, 10, &mut scope, term);
+    //link(&mut net, 0, ptr);
+    //net
+//}
